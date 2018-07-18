@@ -185,6 +185,11 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 
 // 检查一个命令行是否应当被记录。判断条件包括includes条件和exludes条件。
 func (p *ProcessMonitor) matchCommand(c string) bool {
+	// 先排除一些内定的
+	if c == "ps -ef" {
+		return false
+	}
+
 	matched := false
 	if len(p.filters) > 0 {
 		for _, r := range p.filters {
