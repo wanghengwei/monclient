@@ -56,6 +56,9 @@ func (p *ProcessMonitor) snapByPS() error {
 		return fmt.Errorf("run ps failed: %s", err)
 	}
 
+	// 在刷新数据前清除掉老的数据
+	p.Procs = nil
+
 	for _, line := range lines[1:] {
 		item := new(Proc)
 		item.PID = line.GetField(1).AsInt()
