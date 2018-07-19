@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 
 	"github.com/wanghengwei/monclient/cmdutil"
 	"github.com/wanghengwei/monclient/common"
@@ -80,20 +81,19 @@ func (p *ProcessMonitor) snapByLSOF() error {
 	lines, err := cmdutil.RunCommand("lsof", "-a", "-iTCP", "-P", "-n")
 	if err != nil {
 		// lsof出错不是很重要，就是没了端口信息而已，忽视
-		// return fmt.Errorf("run lsof failed: %s", err)
 		return nil
 	}
 
 	for _, line := range lines {
 		pid := line.GetField(1).AsInt()
 		if pid == 0 {
-			log.Printf("skip invalid line of lsof: %s\n", line)
+			log.Printf("skip unknown line of lsof: %s\n", line)
 			continue
 		}
 
 		proc := p.FindProcByPID(pid)
 		if proc == nil {
-			log.Printf("Cannot find proc by pid: %d", pid)
+			log.Printf("cannot find process by pid %d, skip", pid)
 			continue
 		}
 
@@ -108,15 +108,42 @@ func (p *ProcessMonitor) snapByLSOF() error {
 		}
 
 		if st == "(LISTEN)" {
+			// 找出所有监听的端口
 			listen := NewSocketListenByString(name)
 			if listen != nil {
 				proc.AddListenPort(listen)
 			}
-			// } else if st == "(ESTABLISHED)" {
-			// 	sock := NewSocketEstablishedByString(name)
-			// 	if sock != nil {
-			// 		proc.AddEstablishedSocket(sock)
-			// 	}
+		} else if st == "(ESTABLISHED)" {
+			// client socket，name形如 src:spt->dst:dpt 这种格式。
+			// src和spt不重要，不过要排除spt已经是一个监听端口的情况，因为在上面那个if分支
+			// 里已经处理了。
+			re := regexp.MustCompile(`^(.*):(\d+)->(.*):(\d+)`)
+			ts := re.FindStringSubmatch(name)
+			if ts == nil {
+				// 没找到不太正常，跳过算了
+				log.Printf("cannot find format src:spt->dst:dpt in %s\n", name)
+				continue
+			}
+			// 看看源端口是不是一个监听的端口
+			spt, err := strconv.Atoi(ts[2])
+			if err != nil {
+				log.Printf("cannot extract spt as int from %s\n", name)
+				continue
+			}
+			if proc.isListenPort(spt) {
+				log.Printf("%d is a listen port, skip\n", spt)
+				continue
+			}
+
+			// 找出目标端口
+			dpt, err := strconv.Atoi(ts[4])
+			if err != nil {
+				log.Printf("%s is not valid int port\n", ts[4])
+				continue
+			}
+			conn := &ClientConnection{ts[3], dpt, 0}
+
+			proc.AddClientConnections(conn)
 		} else {
 			log.Printf("Unknown lsof name: %s", st)
 		}
@@ -167,9 +194,9 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 		for _, l := range proc.ListenPorts {
 			p.trafficMonitor.AddInput(proc.PID, l.Port)
 		}
-		// for _, l := range proc.ListenPorts {
-		// 	p.trafficMonitor.AddOutput(proc.PID, l.Port)
-		// }
+		for _, c := range proc.ClientConns {
+			p.trafficMonitor.AddClientConnection(proc.PID, c.Address, c.Port)
+		}
 	}
 
 	err := p.trafficMonitor.Snap()
@@ -184,9 +211,9 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 			l.InBytes, l.OutBytes = p.trafficMonitor.FindInputTraffics(proc.PID, l.Port)
 		}
 
-		// for _, l := range proc.EstablishedSockets {
-		// 	l.Bytes = p.trafficMonitor.FindOutputBytes(proc.PID, l.SourcePort)
-		// }
+		for _, l := range proc.ClientConns {
+			l.Bytes = p.trafficMonitor.FindClientOutput(proc.PID, l.Address, l.Port)
+		}
 	}
 
 	return nil

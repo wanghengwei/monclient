@@ -38,8 +38,15 @@ var (
 	netSend = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "x51",
 		Name:      "net_send",
-		Help:      "Sent Bytes",
+		Help:      "Sent Bytes from",
 	}, []string{"cmd", "pid", "port"})
+
+	// 向某个远程地址发送的字节数
+	netSendTo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "x51",
+		Name:      "net_sendto",
+		Help:      "Sent Bytes to",
+	}, []string{"cmd", "pid", "addr", "port"})
 
 	// 收的event
 	eventRecv = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -73,9 +80,9 @@ func (app *App) Run() error {
 						netRecv.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.InBytes))
 						netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.OutBytes))
 					}
-					// for _, l := range proc.EstablishedSockets {
-					// 	netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), l.TargetAddress, strconv.Itoa(l.TargetPort)).Set(float64(l.Bytes))
-					// }
+					for _, c := range proc.ClientConns {
+						netSendTo.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), c.Address, strconv.Itoa(c.Port)).Set(float64(c.Bytes))
+					}
 				}
 			}
 
@@ -89,7 +96,7 @@ func (app *App) Run() error {
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
-	return http.ListenAndServe(":10001", nil)
+	return http.ListenAndServe("127.0.0.1:10001", nil)
 }
 
 func main() {

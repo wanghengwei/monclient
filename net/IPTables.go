@@ -81,10 +81,10 @@ func (t *TrafficMonitor) Snap() error {
 		return err
 	}
 
-	// err = t.snapOutput()
-	// if err != nil {
-	// 	return err
-	// }
+	err = t.snapClient()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -101,15 +101,15 @@ func (t *TrafficMonitor) FindInputTraffics(pid int, port int) (uint64, uint64) {
 }
 
 // FindOutputBytes 获得一个对外连接的流量总字节
-// func (t *TrafficMonitor) FindOutputBytes(pid int, port int) uint64 {
-// 	for _, item := range t.outputs {
-// 		if item.PID == pid && item.SourcePort == port {
-// 			return item.Bytes
-// 		}
-// 	}
+func (t *TrafficMonitor) FindClientOutput(pid int, addr string, port int) uint64 {
+	for _, item := range t.clientConnections {
+		if item.PID == pid && item.Port == port && item.Address == addr {
+			return item.Bytes
+		}
+	}
 
-// 	return 0
-// }
+	return 0
+}
 
 func listRules(chain string) ([]*cmdutil.CommandResultLine, error) {
 	lines, err := cmdutil.RunCommand("iptables", "-x", "-n", "-v", "-L", chain, "--line-numbers")
@@ -147,18 +147,19 @@ func (t *TrafficMonitor) snapInput(chain string) error {
 		ruleNumber := l.GetField(0).String()
 
 		tmp, err := l.GetField(12).FindSubmatches(`pid=(\d+);type=(.*)`)
-		if err != nil || len(tmp) != 2 {
+		if err != nil || len(tmp) != 3 {
 			// remove it
-			log.Printf("not found pid=%s;type=server", l)
+			log.Printf("cannot find server rule: line=%s, err=%s\n", l, err)
 			toDel = append(toDel, ruleNumber)
 			continue
 		}
-		if tmp[1] != "server" {
+		if tmp[2] != "server" {
 			// 不是监听的端口的rule，跳过
+			log.Printf("type is not server, skip\n")
 			continue
 		}
 
-		pid, err := strconv.Atoi(tmp[0])
+		pid, err := strconv.Atoi(tmp[1])
 		if err != nil {
 			toDel = append(toDel, ruleNumber)
 			continue
@@ -258,18 +259,18 @@ func (t *TrafficMonitor) snapClient() error {
 		ruleNumber := l.GetField(0).String()
 
 		tmp, err := l.GetField(12).FindSubmatches(`pid=(\d+);type=(.*)`)
-		if err != nil || len(tmp) != 2 {
+		if err != nil || len(tmp) != 3 {
 			// remove it
-			log.Printf("not found pid=%s;type=client", l)
+			log.Printf("cannot find client comment in line: %s", l)
 			toDel = append(toDel, ruleNumber)
 			continue
 		}
-		if tmp[1] != "client" {
+		if tmp[2] != "client" {
 			// 不是监听的端口的rule，跳过
 			continue
 		}
 
-		pid, err := strconv.Atoi(tmp[0])
+		pid, err := strconv.Atoi(tmp[1])
 		if err != nil {
 			toDel = append(toDel, ruleNumber)
 			continue

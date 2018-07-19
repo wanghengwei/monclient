@@ -2,6 +2,7 @@ package proc
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 )
@@ -20,7 +21,7 @@ type Proc struct {
 	// 表示正在监听的端口
 	ListenPorts []*SocketListen
 	// 表示对外的连接
-	// EstablishedSockets []*SocketEstablished
+	ClientConns []*ClientConnection
 }
 
 // AddListenPort todo
@@ -34,18 +35,28 @@ func (p *Proc) AddListenPort(l *SocketListen) {
 	p.ListenPorts = append(p.ListenPorts, l)
 }
 
-// AddEstablishedSocket 增加一个对外的连接的信息
-// func (p *Proc) AddEstablishedSocket(l *SocketEstablished) {
-// 	for _, item := range p.EstablishedSockets {
-// 		if item == l {
-// 			return
-// 		}
-// 	}
+func (p *Proc) isListenPort(port int) bool {
+	for _, c := range p.ListenPorts {
+		if c.Port == port {
+			return true
+		}
+	}
 
-// 	log.Printf("add an output connection: %v\n", l)
+	return false
+}
 
-// 	p.EstablishedSockets = append(p.EstablishedSockets, l)
-// }
+// AddClientConnections 增加一个对外的连接的信息
+func (p *Proc) AddClientConnections(c *ClientConnection) {
+	for _, i := range p.ClientConns {
+		if i.Address == c.Address && i.Port == c.Port {
+			return
+		}
+	}
+
+	log.Printf("add an output connection: %v\n", c)
+
+	p.ClientConns = append(p.ClientConns, c)
+}
 
 // SocketListen 表示监听的socket
 type SocketListen struct {
@@ -78,16 +89,12 @@ func (s *SocketListen) String() string {
 	return fmt.Sprintf(":%d (in:%d, out:%d)", s.Port, s.InBytes, s.OutBytes)
 }
 
-// SocketEstablished 表示一个对外连接
-// type SocketEstablished struct {
-// 	// SourceAddress string
-// 	// SourcePort    int
-
-// 	TargetAddress string
-// 	TargetPort    int
-
-// 	Bytes uint64
-// }
+// ClientConnection 表示一个对外连接
+type ClientConnection struct {
+	Address string
+	Port    int
+	Bytes   uint64
+}
 
 // NewSocketEstablishedByString 通过lsof的输出创建
 // func NewSocketEstablishedByString(line string) *SocketEstablished {
