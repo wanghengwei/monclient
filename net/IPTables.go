@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/wanghengwei/monclient/cmdutil"
+	"github.com/wanghengwei/monclient/common"
 )
 
 // TrafficMonitor is tool for TrafficMonitor
@@ -74,7 +75,7 @@ func (t *TrafficMonitor) FindInputBytes(pid int, port int) uint64 {
 }
 
 func listRules(chain string) ([]*cmdutil.CommandResultLine, error) {
-	lines, err := cmdutil.RunCommand("iptables", "-n", "-v", "-L", chain, "--line-numbers")
+	lines, err := cmdutil.RunCommand("iptables", "-x", "-n", "-v", "-L", chain, "--line-numbers")
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,10 @@ func (t *TrafficMonitor) snapInput() error {
 
 		// read the bytes stat
 		log.Printf("set bytes. line: %s", l)
-		item.Bytes = l.GetField(2).AsUInt64()
+		item.Bytes, err = common.DataStrToBytes(l.GetField(2).String())
+		if err != nil {
+			log.Printf("convert recv %s to bytes failed\n", l.GetField(2))
+		}
 		item.ready = true
 	}
 

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 	"regexp"
-	"strconv"
 
 	"github.com/wanghengwei/monclient/cmdutil"
+	"github.com/wanghengwei/monclient/common"
 	"github.com/wanghengwei/monclient/net"
 )
 
@@ -153,7 +153,10 @@ func (p *ProcessMonitor) snapByTop() error {
 		}
 
 		proc.CPU = line.GetField(8).AsFloat32()
-		proc.MemoryVirtual, _ = memStrToUInt64Byte(line.GetField(4).String())
+		proc.MemoryVirtual, err = common.DataStrToBytes(line.GetField(4).String())
+		if err != nil {
+			log.Printf("convert mem %s to bytes failed\n", line.GetField(4))
+		}
 	}
 
 	return nil
@@ -276,43 +279,4 @@ func (p *ProcessMonitor) FindProcsByPattern(pattern *regexp.Regexp) []*Proc {
 	}
 
 	return results
-}
-
-func memStrToUInt64Byte(s string) (uint64, error) {
-	m, err := strconv.ParseUint(s, 10, 64)
-	if err == nil {
-		if m < 0 {
-			return 0, fmt.Errorf("negative mem: %s", s)
-		}
-		return m, nil
-	}
-
-	re := regexp.MustCompile(`(\d+(?:\.\d+)?)([kmg])`)
-	ss := re.FindStringSubmatch(s)
-	if ss == nil {
-		return 0, fmt.Errorf("wrong format: %s", s)
-	}
-
-	n, err := strconv.ParseFloat(ss[1], 64)
-	if err != nil {
-		return 0, err
-	}
-
-	if n < 0 {
-		return 0, fmt.Errorf("negative mem: %s", s)
-	}
-
-	var bytes uint64
-	u := ss[2]
-	if u == "k" {
-		bytes = uint64(n * 1024)
-	} else if u == "m" {
-		bytes = uint64(n * 1024 * 1024)
-	} else if u == "g" {
-		bytes = uint64(n * 1024 * 1024 * 1024)
-	} else {
-		return 0, fmt.Errorf("invalid unit: %s", u)
-	}
-
-	return bytes, nil
 }
