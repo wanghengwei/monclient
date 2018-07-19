@@ -82,3 +82,17 @@ func (s *StringField) FindSubmatch(pattern string) *StringField {
 
 	return newStringField(ms[1])
 }
+
+func (s *StringField) FindSubmatches(pattern string) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	r, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	ms := r.FindStringSubmatch(s.content)
+	return ms, nil
+}

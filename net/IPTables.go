@@ -12,8 +12,8 @@ import (
 
 // TrafficMonitor is tool for TrafficMonitor
 type TrafficMonitor struct {
-	inputs []*InputItem
-	// outputs []*OutputItem
+	inputs            []*InputItem
+	clientConnections []*ClientConnection
 }
 
 // NewTrafficMonitor TODO
@@ -24,10 +24,11 @@ func NewTrafficMonitor() *TrafficMonitor {
 // ClearAll 清除当前记录的所有端口信息
 func (t *TrafficMonitor) ClearAll() {
 	t.inputs = nil
-	// t.outputs = nil
+	t.clientConnections = nil
 }
 
-// AddInput 添加一个监听端口
+// AddInput 添加一个需要统计的监听端口
+// 这个端口会被加到INPUT/OUTPUT chain里
 func (t *TrafficMonitor) AddInput(pid int, port int) {
 	t.inputs = append(t.inputs, &InputItem{
 		PID:   pid,
@@ -36,15 +37,16 @@ func (t *TrafficMonitor) AddInput(pid int, port int) {
 	})
 }
 
-// AddOutput 添加一个连出端口
-// port 表示目标端口
-// func (t *TrafficMonitor) AddOutput(pid int, port int) {
-// 	t.outputs = append(t.outputs, &OutputItem{
-// 		PID:        pid,
-// 		SourcePort: port,
-// 		ready:      false,
-// 	})
-// }
+// AddClientConnection 添加一个作为客户端连出去的iptables rule
+// port 表示远程目标端口
+func (t *TrafficMonitor) AddClientConnection(pid int, addr string, port int) {
+	t.clientConnections = append(t.clientConnections, &ClientConnection{
+		PID:     pid,
+		Address: addr,
+		Port:    port,
+		ready:   false,
+	})
+}
 
 // InputItem represent a listening socket
 type InputItem struct {
@@ -55,16 +57,17 @@ type InputItem struct {
 	ready    bool
 }
 
-// OutputItem 表示一个向外的连接
-// type OutputItem struct {
-// 	PID int
-// 	// SourceAddress string
-// 	SourcePort int
-// 	// TargetAddress string
-// 	// TargetPort    int
-// 	Bytes uint64
-// 	ready bool
-// }
+// ClientConnection 表示作为客户端向外的连接，不包括监听端口对外发包的方向
+type ClientConnection struct {
+	PID int
+	// 远端的地址，比如ip
+	Address string
+	// 远端目标端口
+	Port int
+	// 发送的字节数
+	Bytes uint64
+	ready bool
+}
 
 // Snap run command one time
 func (t *TrafficMonitor) Snap() error {
@@ -131,7 +134,7 @@ func (t *TrafficMonitor) snapInput(chain string) error {
 	}
 
 	// line 每行大概长这样
-	// 1 0 0 tcp -- * * 0.0.0.0/0 0.0.0.0/0 tcp dpt:1080 /* pid=10234 */
+	// 1 0 0 tcp -- * * 0.0.0.0/0 0.0.0.0/0 tcp dpt:1080 /* pid=10234;type=server */
 
 	toDel := []string{}
 
@@ -142,20 +145,38 @@ func (t *TrafficMonitor) snapInput(chain string) error {
 		}
 
 		ruleNumber := l.GetField(0).String()
-		// 找到端口。可能是目标也可能是源
-		port := l.GetField(10).FindSubmatch(`[ds]pt:(\d+)`).AsInt()
 
-		if port == 0 {
-			// bad line , to be removed
-			log.Printf("bad line, port is 0: %s", l)
+		tmp, err := l.GetField(12).FindSubmatches(`pid=(\d+);type=(.*)`)
+		if err != nil || len(tmp) != 2 {
+			// remove it
+			log.Printf("not found pid=%s;type=server", l)
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
+		if tmp[1] != "server" {
+			// 不是监听的端口的rule，跳过
+			continue
+		}
+
+		pid, err := strconv.Atoi(tmp[0])
+		if err != nil {
 			toDel = append(toDel, ruleNumber)
 			continue
 		}
 
-		pid := l.GetField(12).FindSubmatch(`pid=(\d+)`).AsInt()
-		if pid == 0 {
-			// remove it
-			log.Printf("not found pid: %s", l)
+		// 找到端口。可能是目标也可能是源
+		var pt string
+		if chain == "INPUT" {
+			pt = `dpt:(\d+)`
+		} else {
+			// 对外则作为源端口
+			pt = `spt:(\d+)`
+		}
+		port := l.GetField(10).FindSubmatch(pt).AsInt()
+
+		if port == 0 {
+			// bad line , to be removed
+			log.Printf("bad line, port is 0: %s", l)
 			toDel = append(toDel, ruleNumber)
 			continue
 		}
@@ -205,7 +226,7 @@ func (t *TrafficMonitor) snapInput(chain string) error {
 			portArg = "--sport"
 		}
 
-		exec.Command("iptables", "-I", chain, "-p", "tcp", portArg, strconv.Itoa(item.Port), "-mcomment", "--comment", fmt.Sprintf("pid=%d", item.PID)).Run()
+		exec.Command("iptables", "-I", chain, "-p", "tcp", portArg, strconv.Itoa(item.Port), "-mcomment", "--comment", fmt.Sprintf("pid=%d;type=server", item.PID)).Run()
 		item.ready = true
 	}
 
@@ -213,82 +234,100 @@ func (t *TrafficMonitor) snapInput(chain string) error {
 }
 
 // 获得向外的连接的信息
-// func (t *TrafficMonitor) snapOutput() error {
-// 	lines, err := listRules("OUTPUT")
-// 	if err != nil {
-// 		return err
-// 	}
+func (t *TrafficMonitor) snapClient() error {
+	lines, err := listRules("OUTPUT")
+	if err != nil {
+		return err
+	}
 
-// 	for _, item := range t.outputs {
-// 		item.ready = false
-// 	}
+	for _, item := range t.clientConnections {
+		item.ready = false
+	}
 
-// 	// line is like this
-// 	// 1 0 0 tcp -- * * 0.0.0.0/0 0.0.0.0/0 tcp dpt:1080 /* pid=10234 */
-// 	toDel := []string{}
+	// line is like this
+	// 1 0 0 tcp -- * * 0.0.0.0/0 1.2.3.4 tcp dpt:1080 /* pid=10234;type=client */
 
-// 	for _, l := range lines {
-// 		if len(l.Fields) != 14 {
-// 			log.Printf("line is not created by me: %s\n", l)
-// 			continue
-// 		}
+	toDel := []string{}
 
-// 		ruleNumber := l.GetField(0).String()
-// 		port := l.GetField(10).FindSubmatch(`spt:(\d+)`).AsInt()
+	for _, l := range lines {
+		if len(l.Fields) != 14 {
+			log.Printf("line is not created by me: %s\n", l)
+			continue
+		}
 
-// 		if port == 0 {
-// 			// bad line , to be removed
-// 			log.Printf("bad line, port is 0: %s", l)
-// 			toDel = append(toDel, ruleNumber)
-// 			continue
-// 		}
+		ruleNumber := l.GetField(0).String()
 
-// 		// // 获得目标地址
-// 		// addr := l.GetField(8).String()
+		tmp, err := l.GetField(12).FindSubmatches(`pid=(\d+);type=(.*)`)
+		if err != nil || len(tmp) != 2 {
+			// remove it
+			log.Printf("not found pid=%s;type=client", l)
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
+		if tmp[1] != "client" {
+			// 不是监听的端口的rule，跳过
+			continue
+		}
 
-// 		pid := l.GetField(12).FindSubmatch(`pid=(\d+)`).AsInt()
-// 		if pid == 0 {
-// 			// remove it
-// 			log.Printf("not found pid: %s", l)
-// 			toDel = append(toDel, ruleNumber)
-// 			continue
-// 		}
+		pid, err := strconv.Atoi(tmp[0])
+		if err != nil {
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
 
-// 		// the rule is not interested, remove it
-// 		item := t.findOutput(pid, port)
-// 		if item == nil {
-// 			log.Printf("remove unwanted item(output): pid=%d, port=%d", pid, port)
-// 			toDel = append(toDel, ruleNumber)
-// 			continue
-// 		}
+		// 目标地址
+		addr := l.GetField(8).String()
 
-// 		// read the bytes stat
-// 		log.Printf("set bytes. line: %s", l)
-// 		item.Bytes, err = common.DataStrToBytes(l.GetField(2).String())
-// 		if err != nil {
-// 			log.Printf("convert send %s to bytes failed\n", l.GetField(2))
-// 		}
-// 		item.ready = true
-// 	}
+		// 目标端口，因此是dpt
+		port := l.GetField(10).FindSubmatch(`dpt:(\d+)`).AsInt()
 
-// 	// delete unwanted rules
-// 	for _, item := range toDel {
-// 		exec.Command("iptables", "-D", "OUTPUT", item).Run()
-// 	}
+		if port == 0 {
+			// bad line , to be removed
+			log.Printf("bad line, port is 0: %s", l)
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
 
-// 	// create rule for non-ready items
-// 	for _, item := range t.outputs {
-// 		if item.ready {
-// 			continue
-// 		}
+		item := t.findClient(pid, addr, port)
+		// the rule is not interested, remove it
+		if item == nil {
+			log.Printf("remove unwanted item(output): pid=%d, port=%d", pid, port)
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
 
-// 		log.Printf("create output rule: pid=%d, port=%d", item.PID, item.SourcePort)
-// 		exec.Command("iptables", "-I", "OUTPUT", "-p", "tcp", "--sport", strconv.Itoa(item.SourcePort), "-mcomment", "--comment", fmt.Sprintf("pid=%d", item.PID)).Run()
-// 		item.ready = true
-// 	}
+		// read the bytes stat
+		log.Printf("set bytes. line: %s", l)
+		item.Bytes, err = common.DataStrToBytes(l.GetField(2).String())
+		if err != nil {
+			log.Printf("convert send %s to bytes failed\n", l.GetField(2))
+			toDel = append(toDel, ruleNumber)
+			continue
+		}
 
-// 	return nil
-// }
+		item.ready = true
+	}
+
+	// delete unwanted rules
+	for _, item := range toDel {
+		exec.Command("iptables", "-D", "OUTPUT", item).Run()
+	}
+
+	// create rule for non-ready items
+	for _, item := range t.clientConnections {
+		if item.ready {
+			continue
+		}
+
+		log.Printf("create output rule: pid=%d, addr=%s, port=%d", item.PID, item.Address, item.Port)
+
+		exec.Command("iptables", "-I", "OUTPUT", "-p", "tcp", "-d", item.Address, "--dport", strconv.Itoa(item.Port), "-mcomment", "--comment", fmt.Sprintf("pid=%d;type=client", item.PID)).Run()
+
+		item.ready = true
+	}
+
+	return nil
+}
 
 func (t *TrafficMonitor) findInput(pid int, port int) *InputItem {
 	for _, item := range t.inputs {
@@ -301,12 +340,12 @@ func (t *TrafficMonitor) findInput(pid int, port int) *InputItem {
 }
 
 // 查询一条对外接口记录
-// func (t *TrafficMonitor) findOutput(pid int, port int) *OutputItem {
-// 	for _, item := range t.outputs {
-// 		if item.PID == pid && item.SourcePort == port {
-// 			return item
-// 		}
-// 	}
+func (t *TrafficMonitor) findClient(pid int, addr string, port int) *ClientConnection {
+	for _, item := range t.clientConnections {
+		if item.PID == pid && item.Address == addr && item.Port == port {
+			return item
+		}
+	}
 
-// 	return nil
-// }
+	return nil
+}
