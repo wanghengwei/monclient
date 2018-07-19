@@ -2,5 +2,9 @@
 - hosts: x51
   remote_user: root
   tasks:
-  - name: kill current process
-    command: killall monclient
+  # - name: kill current process
+  #   command: killall monclient
+  - name: clear INPUT
+    command: iptables -F INPUT
+  - name: clear OUTPUT
+    command: iptables -F OUTPUT

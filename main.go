@@ -39,7 +39,14 @@ var (
 		Namespace: "x51",
 		Name:      "net_send",
 		Help:      "Sent Bytes",
-	}, []string{"cmd", "pid", "target_address", "target_port"})
+	}, []string{"cmd", "pid", "port"})
+
+	// 收的event
+	eventRecv = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "x51",
+		Name:      "event_recv",
+		Help:      "Received Events",
+	}, []string{"service", "pid", "id"})
 
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
@@ -51,7 +58,7 @@ type App struct {
 func (app *App) Run() error {
 	pm := proc.NewProcessMonitor()
 
-	// get stat data
+	// 获得cpu、mem等数据，这些数据来源于周期性的执行系统命令，比如ps
 	go func() {
 		for {
 			log.Printf("snapping...\n")
@@ -63,16 +70,22 @@ func (app *App) Run() error {
 					cpu.WithLabelValues(proc.Command, strconv.Itoa(proc.PID)).Set(float64(proc.CPU))
 					mem.WithLabelValues(proc.Command, strconv.Itoa(proc.PID)).Set(float64(proc.MemoryVirtual))
 					for _, l := range proc.ListenPorts {
-						netRecv.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.Bytes))
+						netRecv.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.InBytes))
+						netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.OutBytes))
 					}
-					for _, l := range proc.EstablishedSockets {
-						netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), l.TargetAddress, strconv.Itoa(l.TargetPort)).Set(float64(l.Bytes))
-					}
+					// for _, l := range proc.EstablishedSockets {
+					// 	netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), l.TargetAddress, strconv.Itoa(l.TargetPort)).Set(float64(l.Bytes))
+					// }
 				}
 			}
 
 			time.Sleep(10 * time.Second)
 		}
+	}()
+
+	// 通过log来分析event数量
+	go func() {
+
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())

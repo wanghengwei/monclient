@@ -2,17 +2,9 @@
 - hosts: x51
   remote_user: root
   tasks:
-  # - name: ping
-  #   ping:
-  # - name: kill current process
-  #   command: killall monclient
   - name: copy
     copy:
       src: ../monclient
       dest: /usr/local/bin/monclient
-  # - name: delete bad files
-  #   file:
-  #     path: /usr/local/monclient
-  #     state: absent
   - name: start process
     command: /usr/local/bin/monclient -d

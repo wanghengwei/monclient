@@ -112,11 +112,11 @@ func (p *ProcessMonitor) snapByLSOF() error {
 			if listen != nil {
 				proc.AddListenPort(listen)
 			}
-		} else if st == "(ESTABLISHED)" {
-			sock := NewSocketEstablishedByString(name)
-			if sock != nil {
-				proc.AddEstablishedSocket(sock)
-			}
+			// } else if st == "(ESTABLISHED)" {
+			// 	sock := NewSocketEstablishedByString(name)
+			// 	if sock != nil {
+			// 		proc.AddEstablishedSocket(sock)
+			// 	}
 		} else {
 			log.Printf("Unknown lsof name: %s", st)
 		}
@@ -167,9 +167,9 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 		for _, l := range proc.ListenPorts {
 			p.trafficMonitor.AddInput(proc.PID, l.Port)
 		}
-		for _, l := range proc.EstablishedSockets {
-			p.trafficMonitor.AddOutput(proc.PID, l.TargetAddress, l.TargetPort)
-		}
+		// for _, l := range proc.ListenPorts {
+		// 	p.trafficMonitor.AddOutput(proc.PID, l.Port)
+		// }
 	}
 
 	err := p.trafficMonitor.Snap()
@@ -181,12 +181,12 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 
 	for _, proc := range p.Procs {
 		for _, l := range proc.ListenPorts {
-			l.Bytes = p.trafficMonitor.FindInputBytes(proc.PID, l.Port)
+			l.InBytes, l.OutBytes = p.trafficMonitor.FindInputTraffics(proc.PID, l.Port)
 		}
 
-		for _, l := range proc.EstablishedSockets {
-			l.Bytes = p.trafficMonitor.FindOutputBytes(proc.PID, l.TargetAddress, l.TargetPort)
-		}
+		// for _, l := range proc.EstablishedSockets {
+		// 	l.Bytes = p.trafficMonitor.FindOutputBytes(proc.PID, l.SourcePort)
+		// }
 	}
 
 	return nil
@@ -198,6 +198,15 @@ func (p *ProcessMonitor) matchCommand(c string) bool {
 	if c == "ps -ef" {
 		return false
 	}
+
+	if matched, _ := regexp.MatchString(`^\[.+\]`, c); matched {
+		return false
+	}
+
+	// 暂时只看service_box的
+	// if matched, _ := regexp.MatchString(`service_box`, c); !matched {
+	// 	return false
+	// }
 
 	matched := false
 	if len(p.filters) > 0 {
