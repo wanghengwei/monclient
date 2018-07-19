@@ -5,8 +5,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
+
+	"github.com/sevlyar/go-daemon"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -33,52 +34,15 @@ var (
 		Help:      "Received Bytes",
 	}, []string{"cmd", "pid", "port"})
 
-	// config
-	globalConfig = &Config{}
-
 	// args
-	configPath = flag.String("config", "", "")
+	runAsDaemon = flag.Bool("d", false, "as daemon")
 )
 
-// Config todo
-type Config struct {
-	IncludePatterns []string `json:"include_patterns"`
-	ExcludePatterns []string `json:"exclude_patterns"`
+type App struct {
 }
 
-type SafeConfig struct {
-	Data Config
-	mux  sync.Mutex
-}
-
-func main() {
-	flag.Parse()
-
-	// read config from local file
-	// var cp string
-
-	// if len(*configPath) == 0 {
-	// 	cp = filepath.Join(filepath.Dir(os.Args[0]), "config.json")
-	// } else {
-	// 	cp = *configPath
-	// }
-
-	// data, err := ioutil.ReadFile(cp)
-	// if err == nil {
-	// 	json.Unmarshal(data, globalConfig)
-	// 	log.Printf("%v\n", globalConfig)
-	// }
-
+func (app *App) Run() error {
 	pm := proc.NewProcessMonitor()
-
-	// update config in background
-	go func() {
-		for {
-			// get config from remote or local config file
-			// cfg := &Config{}
-			time.Sleep(3 * time.Second)
-		}
-	}()
 
 	// get stat data
 	go func() {
@@ -102,5 +66,30 @@ func main() {
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":10001", nil)
+	return http.ListenAndServe(":10001", nil)
+}
+
+func main() {
+	flag.Parse()
+
+	if *runAsDaemon {
+		ctx := daemon.Context{
+			PidFileName: "/tmp/monclient.pid",
+			WorkDir:     "/tmp",
+		}
+		d, err := ctx.Reborn()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if d != nil {
+			return
+		}
+		defer ctx.Release()
+	}
+
+	app := App{}
+	err := app.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
