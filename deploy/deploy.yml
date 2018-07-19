@@ -15,4 +15,4 @@
   #     path: /usr/local/monclient
   #     state: absent
   - name: start process
-    shell: monclient -d
+    command: /usr/local/bin/monclient -d

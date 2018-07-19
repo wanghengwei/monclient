@@ -34,6 +34,13 @@ var (
 		Help:      "Received Bytes",
 	}, []string{"cmd", "pid", "port"})
 
+	// 发送的字节数
+	netSend = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "x51",
+		Name:      "net_send",
+		Help:      "Sent Bytes",
+	}, []string{"cmd", "pid", "target_address", "target_port"})
+
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
 )
@@ -57,6 +64,9 @@ func (app *App) Run() error {
 					mem.WithLabelValues(proc.Command, strconv.Itoa(proc.PID)).Set(float64(proc.MemoryVirtual))
 					for _, l := range proc.ListenPorts {
 						netRecv.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), strconv.Itoa(l.Port)).Set(float64(l.Bytes))
+					}
+					for _, l := range proc.EstablishedSockets {
+						netSend.WithLabelValues(proc.Command, strconv.Itoa(proc.PID), l.TargetAddress, strconv.Itoa(l.TargetPort)).Set(float64(l.Bytes))
 					}
 				}
 			}

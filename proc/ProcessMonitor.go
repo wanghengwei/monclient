@@ -77,7 +77,7 @@ func (p *ProcessMonitor) snapByPS() error {
 }
 
 func (p *ProcessMonitor) snapByLSOF() error {
-	lines, err := cmdutil.RunCommand("lsof", "-a", "-iTCP", "-P")
+	lines, err := cmdutil.RunCommand("lsof", "-a", "-iTCP", "-P", "-n")
 	if err != nil {
 		// lsof出错不是很重要，就是没了端口信息而已，忽视
 		// return fmt.Errorf("run lsof failed: %s", err)
@@ -115,8 +115,7 @@ func (p *ProcessMonitor) snapByLSOF() error {
 		} else if st == "(ESTABLISHED)" {
 			sock := NewSocketEstablishedByString(name)
 			if sock != nil {
-				// TODO
-				// proc.EstablishedConnections = append(proc.EstablishedConnections, sock)
+				proc.AddEstablishedSocket(sock)
 			}
 		} else {
 			log.Printf("Unknown lsof name: %s", st)
@@ -163,10 +162,13 @@ func (p *ProcessMonitor) snapByTop() error {
 }
 
 func (p *ProcessMonitor) snapByTrafficMonitor() error {
-	p.trafficMonitor.ClearInputs()
+	p.trafficMonitor.ClearAll()
 	for _, proc := range p.Procs {
 		for _, l := range proc.ListenPorts {
 			p.trafficMonitor.AddInput(proc.PID, l.Port)
+		}
+		for _, l := range proc.EstablishedSockets {
+			p.trafficMonitor.AddOutput(proc.PID, l.TargetAddress, l.TargetPort)
 		}
 	}
 
@@ -180,6 +182,10 @@ func (p *ProcessMonitor) snapByTrafficMonitor() error {
 	for _, proc := range p.Procs {
 		for _, l := range proc.ListenPorts {
 			l.Bytes = p.trafficMonitor.FindInputBytes(proc.PID, l.Port)
+		}
+
+		for _, l := range proc.EstablishedSockets {
+			l.Bytes = p.trafficMonitor.FindOutputBytes(proc.PID, l.TargetAddress, l.TargetPort)
 		}
 	}
 

@@ -21,7 +21,7 @@ type Proc struct {
 	// 表示正在监听的端口
 	ListenPorts []*SocketListen
 	// 表示对外的连接
-	EstablishedConnections []*SocketEstablished
+	EstablishedSockets []*SocketEstablished
 }
 
 // AddListenPort todo
@@ -33,6 +33,19 @@ func (p *Proc) AddListenPort(l *SocketListen) {
 	}
 
 	p.ListenPorts = append(p.ListenPorts, l)
+}
+
+// AddEstablishedSocket 增加一个对外的连接的信息
+func (p *Proc) AddEstablishedSocket(l *SocketEstablished) {
+	for _, item := range p.EstablishedSockets {
+		if item == l {
+			return
+		}
+	}
+
+	log.Printf("add an output connection: %v\n", l)
+
+	p.EstablishedSockets = append(p.EstablishedSockets, l)
 }
 
 // SocketListen 表示监听的socket
@@ -67,11 +80,13 @@ func (s *SocketListen) String() string {
 
 // SocketEstablished 表示一个对外连接
 type SocketEstablished struct {
-	SourceAddress string
-	SourcePort    int
+	// SourceAddress string
+	// SourcePort    int
 
 	TargetAddress string
 	TargetPort    int
+
+	Bytes uint64
 }
 
 // NewSocketEstablishedByString 通过lsof的输出创建
@@ -82,7 +97,7 @@ func NewSocketEstablishedByString(line string) *SocketEstablished {
 		return nil
 	}
 
-	sport, err := strconv.Atoi(ss[2])
+	_, err := strconv.Atoi(ss[2])
 	if err != nil {
 		return nil
 	}
@@ -93,13 +108,13 @@ func NewSocketEstablishedByString(line string) *SocketEstablished {
 	}
 
 	return &SocketEstablished{
-		SourceAddress: ss[1],
-		SourcePort:    sport,
+		// SourceAddress: ss[1],
+		// SourcePort:    sport,
 		TargetAddress: ss[3],
 		TargetPort:    dport,
 	}
 }
 
 func (s *SocketEstablished) String() string {
-	return fmt.Sprintf("%s:%d->%s:%d", s.SourceAddress, s.SourcePort, s.TargetAddress, s.TargetPort)
+	return fmt.Sprintf("%s:%d->%s:%d", "*", 0, s.TargetAddress, s.TargetPort)
 }

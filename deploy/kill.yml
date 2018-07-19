@@ -1,0 +1,6 @@
+---
+- hosts: x51
+  remote_user: root
+  tasks:
+  - name: kill current process
+    command: killall monclient
