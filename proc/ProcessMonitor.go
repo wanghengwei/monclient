@@ -84,6 +84,8 @@ func (p *ProcessMonitor) snapByLSOF() error {
 		return nil
 	}
 
+	clientConnLines := []*cmdutil.CommandResultLine{}
+
 	for _, line := range lines {
 		pid := line.GetField(1).AsInt()
 		if pid == 0 {
@@ -117,36 +119,64 @@ func (p *ProcessMonitor) snapByLSOF() error {
 			// client socket，name形如 src:spt->dst:dpt 这种格式。
 			// src和spt不重要，不过要排除spt已经是一个监听端口的情况，因为在上面那个if分支
 			// 里已经处理了。
-			re := regexp.MustCompile(`^(.*):(\d+)->(.*):(\d+)`)
-			ts := re.FindStringSubmatch(name)
-			if ts == nil {
-				// 没找到不太正常，跳过算了
-				log.Printf("cannot find format src:spt->dst:dpt in %s\n", name)
-				continue
-			}
-			// 看看源端口是不是一个监听的端口
-			spt, err := strconv.Atoi(ts[2])
-			if err != nil {
-				log.Printf("cannot extract spt as int from %s\n", name)
-				continue
-			}
-			if proc.isListenPort(spt) {
-				log.Printf("%d is a listen port, skip\n", spt)
-				continue
-			}
 
-			// 找出目标端口
-			dpt, err := strconv.Atoi(ts[4])
-			if err != nil {
-				log.Printf("%s is not valid int port\n", ts[4])
-				continue
-			}
-			conn := &ClientConnection{ts[3], dpt, 0}
+			// 将这个端口暂存，等循环完再添加，因为要先搞定监听的端口
+			clientConnLines = append(clientConnLines, line)
 
-			proc.AddClientConnections(conn)
 		} else {
 			log.Printf("Unknown lsof name: %s", st)
 		}
+	}
+
+	// 最后添加client连接，这是为了先把监听的端口搞定
+	for _, line := range clientConnLines {
+		pid := line.GetField(1).AsInt()
+		if pid == 0 {
+			log.Printf("skip unknown line of lsof: %s\n", line)
+			continue
+		}
+
+		proc := p.FindProcByPID(pid)
+		if proc == nil {
+			log.Printf("cannot find process by pid %d, skip", pid)
+			continue
+		}
+
+		var name string
+		if len(line.Fields) == 10 {
+			name = line.GetField(8).String()
+		} else if len(line.Fields) == 9 {
+			name = line.GetField(7).String()
+		}
+
+		re := regexp.MustCompile(`^(.*):(\d+)->(.*):(\d+)`)
+		ts := re.FindStringSubmatch(name)
+		if ts == nil {
+			// 没找到不太正常，跳过算了
+			log.Printf("cannot find format src:spt->dst:dpt in %s\n", name)
+			continue
+		}
+
+		// 看看源端口是不是一个监听的端口
+		spt, err := strconv.Atoi(ts[2])
+		if err != nil {
+			log.Printf("cannot extract spt as int from %s\n", name)
+			continue
+		}
+		if proc.isListenPort(spt) {
+			log.Printf("%d is a listen port, skip\n", spt)
+			continue
+		}
+
+		// 找出目标端口
+		dpt, err := strconv.Atoi(ts[4])
+		if err != nil {
+			log.Printf("%s is not valid int port\n", ts[4])
+			continue
+		}
+		conn := &ClientConnection{ts[3], dpt, 0}
+
+		proc.AddClientConnections(conn)
 	}
 
 	return nil
