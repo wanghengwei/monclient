@@ -22,6 +22,9 @@ type ProcessMonitor struct {
 	excludes []*regexp.Regexp
 
 	trafficMonitor *net.TrafficMonitor
+
+	blacklistLocal  []func(int) bool
+	blacklistRemote []func(int) bool
 }
 
 // NewProcessMonitor create a ProcessMonitor object
@@ -32,6 +35,64 @@ func NewProcessMonitor(filters ...string) *ProcessMonitor {
 	}
 	p.trafficMonitor = net.NewTrafficMonitor()
 	return p
+}
+
+// AddSinglePortToLocalBlacklist 添加一个本地端口到黑名单
+func (p *ProcessMonitor) AddSinglePortToLocalBlacklist(port int) {
+	f := func(x int) bool {
+		return x == port
+	}
+	p.blacklistLocal = append(p.blacklistLocal, f)
+}
+
+// AddSinglePortToRemoteBlacklist 添加一个本地端口到黑名单
+func (p *ProcessMonitor) AddSinglePortToRemoteBlacklist(port int) {
+	f := func(x int) bool {
+		return x == port
+	}
+	p.blacklistRemote = append(p.blacklistRemote, f)
+}
+
+// AddPortRangeToLocalBlacklist 添加一个本地端口范围到黑名单。包括两端
+func (p *ProcessMonitor) AddPortRangeToLocalBlacklist(from int, to int) {
+	f := func(x int) bool {
+		return x >= from && x <= to
+	}
+	p.blacklistLocal = append(p.blacklistLocal, f)
+}
+
+func (p *ProcessMonitor) AddPortRangeToRemoteBlacklist(from int, to int) {
+	f := func(x int) bool {
+		return x >= from && x <= to
+	}
+	p.blacklistRemote = append(p.blacklistRemote, f)
+}
+
+func (p *ProcessMonitor) ClearBlacklist() {
+	p.blacklistLocal = nil
+	p.blacklistRemote = nil
+}
+
+func (p *ProcessMonitor) inBlacklistOfLocal(port int) bool {
+	for _, f := range p.blacklistLocal {
+		b := f(port)
+		if b {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *ProcessMonitor) inBlacklistOfRemote(port int) bool {
+	for _, f := range p.blacklistRemote {
+		b := f(port)
+		if b {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Includes todo
@@ -112,6 +173,11 @@ func (p *ProcessMonitor) snapByLSOF() error {
 		if st == "(LISTEN)" {
 			// 找出所有监听的端口
 			listen := NewSocketListenByString(name)
+			// 看看是不是在黑名单里，在就忽略
+			if p.inBlacklistOfLocal(listen.Port) {
+				log.Printf("the local port %d is in blacklist, skip\n", listen.Port)
+				continue
+			}
 			if listen != nil {
 				proc.AddListenPort(listen)
 			}
@@ -167,11 +233,21 @@ func (p *ProcessMonitor) snapByLSOF() error {
 			log.Printf("%d is a listen port, skip\n", spt)
 			continue
 		}
+		// 检查源端口是不是在黑名单
+		if p.inBlacklistOfLocal(spt) {
+			log.Printf("the local port %d is in blacklist, skip\n", spt)
+			continue
+		}
 
 		// 找出目标端口
 		dpt, err := strconv.Atoi(ts[4])
 		if err != nil {
 			log.Printf("%s is not valid int port\n", ts[4])
+			continue
+		}
+		// 检查黑名单
+		if p.inBlacklistOfRemote(dpt) {
+			log.Printf("the remote port %d is in blacklist, skip\n", dpt)
 			continue
 		}
 		conn := &ClientConnection{ts[3], dpt, 0}
@@ -261,9 +337,9 @@ func (p *ProcessMonitor) matchCommand(c string) bool {
 	}
 
 	// 暂时只看service_box的
-	// if matched, _ := regexp.MatchString(`service_box`, c); !matched {
-	// 	return false
-	// }
+	if matched, _ := regexp.MatchString(`service_box`, c); !matched {
+		return false
+	}
 
 	matched := false
 	if len(p.filters) > 0 {

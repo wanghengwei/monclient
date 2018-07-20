@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -57,17 +58,46 @@ var (
 
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
+
+	// config
+	config = &Config{}
 )
 
-type App struct {
+type Config struct {
+	PortBlacklist struct {
+		Local  []string
+		Remote []string
+	}
 }
 
+// App 总入口
+type App struct{}
+
+func (app *App) applyConfig() {
+
+}
+
+// Run 执行主任务。不会返回
 func (app *App) Run() error {
+
+	config.PortBlacklist.Local = []string{"27151-27911"}
+	config.PortBlacklist.Remote = []string{"27151-27911"}
+
+	// 首先应用一次配置
+	app.applyConfig()
+
 	pm := proc.NewProcessMonitor()
 
 	// 获得cpu、mem等数据，这些数据来源于周期性的执行系统命令，比如ps
 	go func() {
 		for {
+			// 每次循环开头都应用下配置，因为配置可能会运行时刷新
+			app.applyConfig()
+			// 设置本地端口黑名单
+			pm.ClearBlacklist()
+			setPortBlacklist(config.PortBlacklist.Local, pm.AddSinglePortToLocalBlacklist, pm.AddPortRangeToLocalBlacklist)
+			setPortBlacklist(config.PortBlacklist.Remote, pm.AddSinglePortToRemoteBlacklist, pm.AddPortRangeToRemoteBlacklist)
+
 			log.Printf("snapping...\n")
 			err := pm.Snap()
 			if err != nil {
@@ -102,6 +132,7 @@ func (app *App) Run() error {
 func main() {
 	flag.Parse()
 
+	// 这段if是为了用daemon方式运行
 	if *runAsDaemon {
 		ctx := daemon.Context{
 			PidFileName: "/tmp/monclient.pid",
@@ -117,9 +148,24 @@ func main() {
 		defer ctx.Release()
 	}
 
+	// 启动应用
 	app := App{}
-	err := app.Run()
-	if err != nil {
+	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func setPortBlacklist(ports []string, f1 func(int), f2 func(int, int)) {
+	numberRe := regexp.MustCompile(`^(\d+)$`)
+	rangeRe := regexp.MustCompile(`^(\d+)-(\d+)$`)
+	for _, s := range ports {
+		if ss := numberRe.FindStringSubmatch(s); len(ss) > 0 {
+			port, _ := strconv.Atoi(ss[1])
+			f1(port)
+		} else if ss := rangeRe.FindStringSubmatch(s); len(ss) > 0 {
+			a, _ := strconv.Atoi(ss[1])
+			b, _ := strconv.Atoi(ss[2])
+			f2(a, b)
+		}
 	}
 }
