@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/wanghengwei/monclient/conf"
 	"github.com/wanghengwei/monclient/proc"
 )
 
@@ -59,32 +60,45 @@ var (
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
 
-	// config
-	config = &Config{}
+	// global config
+	// config = &conf.Config{}
 )
 
-type Config struct {
-	PortBlacklist struct {
-		Local  []string
-		Remote []string
-	}
+// App 总入口
+type App struct {
+	config     *conf.Config
+	cfgLoaders []conf.ConfigLoader
 }
 
-// App 总入口
-type App struct{}
+func NewApp() *App {
+	app := &App{
+		config: &conf.Config{},
+	}
+	app.cfgLoaders = []conf.ConfigLoader{
+		conf.NewHttpConfigLoader("http://cfg.monitor.tac.com/monclient-default.json", app.config),
+		conf.NewDefaultConfigLoader(app.config),
+	}
 
-func (app *App) applyConfig() {
+	return app
+}
 
+func (app *App) loadConfig() {
+	for _, cl := range app.cfgLoaders {
+		err := cl.Load()
+		if err == nil {
+			break
+		}
+	}
 }
 
 // Run 执行主任务。不会返回
 func (app *App) Run() error {
 
-	config.PortBlacklist.Local = []string{"27151-27911"}
-	config.PortBlacklist.Remote = []string{"27151-27911"}
+	// config.PortBlacklist.Local = []string{"27151-27911"}
+	// config.PortBlacklist.Remote = []string{"27151-27911"}
 
 	// 首先应用一次配置
-	app.applyConfig()
+	// app.loadConfig()
 
 	pm := proc.NewProcessMonitor()
 
@@ -92,16 +106,23 @@ func (app *App) Run() error {
 	go func() {
 		for {
 			// 每次循环开头都应用下配置，因为配置可能会运行时刷新
-			app.applyConfig()
+			app.loadConfig()
+
+			log.Printf("%v\n", app.config)
+
 			// 设置本地端口黑名单
 			pm.ClearBlacklist()
-			setPortBlacklist(config.PortBlacklist.Local, pm.AddSinglePortToLocalBlacklist, pm.AddPortRangeToLocalBlacklist)
-			setPortBlacklist(config.PortBlacklist.Remote, pm.AddSinglePortToRemoteBlacklist, pm.AddPortRangeToRemoteBlacklist)
+			setPortBlacklist(app.config.Port.Excludes, pm.AddSinglePortToLocalBlacklist, pm.AddPortRangeToLocalBlacklist)
+			setPortBlacklist(app.config.Port.Excludes, pm.AddSinglePortToRemoteBlacklist, pm.AddPortRangeToRemoteBlacklist)
+
+			// 设置进程黑白名单
+			pm.AddIncludes(app.config.Command.Includes...)
+			pm.AddExcludes(app.config.Command.Excludes...)
 
 			log.Printf("snapping...\n")
 			err := pm.Snap()
 			if err != nil {
-				log.Println(err)
+				log.Println("Snap FAILED: %s\n", err)
 			} else {
 				for _, proc := range pm.Procs {
 					cpu.WithLabelValues(proc.Command, strconv.Itoa(proc.PID)).Set(float64(proc.CPU))
@@ -149,7 +170,7 @@ func main() {
 	}
 
 	// 启动应用
-	app := App{}
+	app := NewApp()
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}

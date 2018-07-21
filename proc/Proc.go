@@ -24,15 +24,17 @@ type Proc struct {
 	ClientConns []*ClientConnection
 }
 
-// AddListenPort todo
-func (p *Proc) AddListenPort(l *SocketListen) {
+// AddListenPort 添加一个监听的端口信息
+func (p *Proc) AddListenPort(port int) {
 	for _, item := range p.ListenPorts {
-		if item.Port == l.Port {
+		if item.Port == port {
 			return
 		}
 	}
 
-	p.ListenPorts = append(p.ListenPorts, l)
+	p.ListenPorts = append(p.ListenPorts, &SocketListen{
+		Port: port,
+	})
 }
 
 func (p *Proc) isListenPort(port int) bool {
@@ -46,16 +48,19 @@ func (p *Proc) isListenPort(port int) bool {
 }
 
 // AddClientConnections 增加一个对外的连接的信息
-func (p *Proc) AddClientConnections(c *ClientConnection) {
+func (p *Proc) AddClientConnection(addr string, port int) {
 	for _, i := range p.ClientConns {
-		if i.Address == c.Address && i.Port == c.Port {
+		if i.Address == addr && i.Port == port {
 			return
 		}
 	}
 
-	log.Printf("add an output connection: %v\n", c)
+	log.Printf("add an output connection: %s:%d\n", addr, port)
 
-	p.ClientConns = append(p.ClientConns, c)
+	p.ClientConns = append(p.ClientConns, &ClientConnection{
+		Address: addr,
+		Port:    port,
+	})
 }
 
 // SocketListen 表示监听的socket
