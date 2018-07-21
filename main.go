@@ -10,6 +10,8 @@ import (
 
 	"github.com/sevlyar/go-daemon"
 
+	"github.com/golang/glog"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -108,7 +110,7 @@ func (app *App) Run() error {
 			// 每次循环开头都应用下配置，因为配置可能会运行时刷新
 			app.loadConfig()
 
-			log.Printf("%v\n", app.config)
+			glog.V(1).Infof("config=%v\n", app.config)
 
 			// 设置本地端口黑名单
 			pm.ClearBlacklist()
