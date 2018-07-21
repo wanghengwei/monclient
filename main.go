@@ -61,9 +61,6 @@ var (
 
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
-
-	// global config
-	// config = &conf.Config{}
 )
 
 // App 总入口
@@ -95,12 +92,6 @@ func (app *App) loadConfig() {
 
 // Run 执行主任务。不会返回
 func (app *App) Run() error {
-
-	// config.PortBlacklist.Local = []string{"27151-27911"}
-	// config.PortBlacklist.Remote = []string{"27151-27911"}
-
-	// 首先应用一次配置
-	// app.loadConfig()
 
 	pm := proc.NewProcessMonitor()
 

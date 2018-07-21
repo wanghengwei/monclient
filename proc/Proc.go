@@ -100,33 +100,3 @@ type ClientConnection struct {
 	Port    int
 	Bytes   uint64
 }
-
-// NewSocketEstablishedByString 通过lsof的输出创建
-// func NewSocketEstablishedByString(line string) *SocketEstablished {
-// 	ss := socketEstablishedStringPattern.FindStringSubmatch(line)
-// 	if ss == nil {
-// 		log.Printf("Regexp find failed: %s", line)
-// 		return nil
-// 	}
-
-// 	_, err := strconv.Atoi(ss[2])
-// 	if err != nil {
-// 		return nil
-// 	}
-
-// 	dport, err := strconv.Atoi(ss[4])
-// 	if err != nil {
-// 		return nil
-// 	}
-
-// 	return &SocketEstablished{
-// 		// SourceAddress: ss[1],
-// 		// SourcePort:    sport,
-// 		TargetAddress: ss[3],
-// 		TargetPort:    dport,
-// 	}
-// }
-
-// func (s *SocketEstablished) String() string {
-// 	return fmt.Sprintf("%s:%d->%s:%d", "*", 0, s.TargetAddress, s.TargetPort)
-// }

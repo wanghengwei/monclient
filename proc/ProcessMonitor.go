@@ -141,7 +141,6 @@ func (p *ProcessMonitor) snapByPS() error {
 }
 
 func (p *ProcessMonitor) snapByLSOF() error {
-	// lines, err := cmdutil.RunCommand("lsof", "-a", "-iTCP", "-P", "-n")
 	lsof := &lsof.Lsof{}
 	result, err := lsof.Run()
 	if err != nil {
@@ -149,34 +148,12 @@ func (p *ProcessMonitor) snapByLSOF() error {
 		return nil
 	}
 
-	// clientConnLines := []*cmdutil.CommandResultLine{}
-
 	for _, item := range result.GetListenItems() {
-		// pid := line.GetField(1).AsInt()
-		// if pid == 0 {
-		// 	log.Printf("skip unknown line of lsof: %s\n", line)
-		// 	continue
-		// }
-
 		proc := p.FindProcByPID(item.PID)
 		if proc == nil {
 			log.Printf("cannot find process by pid %d, skip", item.PID)
 			continue
 		}
-
-		// var name string
-		// var st string
-		// if len(line.Fields) == 10 {
-		// 	st = line.GetField(9).String()
-		// 	name = line.GetField(8).String()
-		// } else if len(line.Fields) == 9 {
-		// 	st = line.GetField(8).String()
-		// 	name = line.GetField(7).String()
-		// }
-
-		// if st == "(LISTEN)" {
-		// 	// 找出所有监听的端口
-		// listen := NewSocketListenByString(name)
 
 		// 看看是不是在黑名单里，在就忽略
 		if p.inBlacklistOfLocal(item.BindPort) {
@@ -184,57 +161,17 @@ func (p *ProcessMonitor) snapByLSOF() error {
 			continue
 		}
 
-		// if listen != nil {
 		proc.AddListenPort(item.BindPort)
-		// }
-		// } else if st == "(ESTABLISHED)" {
-		// 	// client socket，name形如 src:spt->dst:dpt 这种格式。
-		// 	// src和spt不重要，不过要排除spt已经是一个监听端口的情况，因为在上面那个if分支
-		// 	// 里已经处理了。
-
-		// 	// 将这个端口暂存，等循环完再添加，因为要先搞定监听的端口
-		// 	clientConnLines = append(clientConnLines, line)
-
-		// } else {
-		// 	log.Printf("Unknown lsof name: %s", st)
-		// }
 	}
 
 	// 最后添加client连接，这是为了先把监听的端口搞定
 	for _, item := range result.GetEstablishedItems() {
-		// pid := line.GetField(1).AsInt()
-		// if pid == 0 {
-		// 	log.Printf("skip unknown line of lsof: %s\n", line)
-		// 	continue
-		// }
-
 		proc := p.FindProcByPID(item.PID)
 		if proc == nil {
 			log.Printf("cannot find process by pid %d, skip", item.PID)
 			continue
 		}
 
-		// var name string
-		// if len(line.Fields) == 10 {
-		// 	name = line.GetField(8).String()
-		// } else if len(line.Fields) == 9 {
-		// 	name = line.GetField(7).String()
-		// }
-
-		// re := regexp.MustCompile(`^(.*):(\d+)->(.*):(\d+)`)
-		// ts := re.FindStringSubmatch(name)
-		// if ts == nil {
-		// 	// 没找到不太正常，跳过算了
-		// 	log.Printf("cannot find format src:spt->dst:dpt in %s\n", name)
-		// 	continue
-		// }
-
-		// // 看看源端口是不是一个监听的端口
-		// spt, err := strconv.Atoi(ts[2])
-		// if err != nil {
-		// 	log.Printf("cannot extract spt as int from %s\n", name)
-		// 	continue
-		// }
 		if proc.isListenPort(item.SourcePort) {
 			log.Printf("%d is a listen port, skip\n", item.SourcePort)
 			continue
@@ -245,18 +182,11 @@ func (p *ProcessMonitor) snapByLSOF() error {
 			continue
 		}
 
-		// // 找出目标端口
-		// dpt, err := strconv.Atoi(ts[4])
-		// if err != nil {
-		// 	log.Printf("%s is not valid int port\n", ts[4])
-		// 	continue
-		// }
 		// 检查黑名单
 		if p.inBlacklistOfRemote(item.TargetPort) {
 			log.Printf("the remote port %d is in blacklist, skip\n", item.TargetPort)
 			continue
 		}
-		// conn := &ClientConnection{ts[3], dpt, 0}
 
 		proc.AddClientConnection(item.TargetAddress, item.TargetPort)
 	}
@@ -338,9 +268,9 @@ func (p *ProcessMonitor) matchCommand(c string) bool {
 		return false
 	}
 
-	// if matched, _ := regexp.MatchString(`^\[.+\]`, c); matched {
-	// 	return false
-	// }
+	if matched, _ := regexp.MatchString(`^\[.*\]$`, c); matched {
+		return false
+	}
 
 	// 暂时只看service_box的
 	// if matched, _ := regexp.MatchString(`service_box`, c); !matched {

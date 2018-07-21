@@ -64,7 +64,7 @@ func (cl *DefaultConfigLoader) Load() error {
 	}
 
 	cl.config.Command.Includes = nil
-	cl.config.Command.Excludes = []string{`^\[.*\]`}
+	cl.config.Command.Excludes = nil
 	cl.config.Port.Excludes = nil
 
 	return nil
