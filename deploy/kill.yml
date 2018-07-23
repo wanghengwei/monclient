@@ -3,6 +3,7 @@
   remote_user: root
   tasks:
   - name: kill current process
+    ignore_errors: true
     command: killall monclient
   - name: clear INPUT
     command: iptables -F INPUT

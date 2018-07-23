@@ -8,14 +8,17 @@ import (
 func TestDecodeConfig(t *testing.T) {
 	const a = `{
 		"command": {
-		"includes": [
-			"service_box.*"
-		]
+			"includes": [
+				"service_box.*"
+			]
 		},
 		"port": {
-		"excludes": [
-			"27151-27955"
-		]
+			"excludes": [
+				"27151-27955"
+			]
+		},
+		"x51log": {
+			"folder": "/tmp"
 		}
 	  }`
 
@@ -27,6 +30,10 @@ func TestDecodeConfig(t *testing.T) {
 	}
 
 	if (cfg.Command.Includes == nil) || (cfg.Command.Includes[0] != `service_box.*`) {
+		t.Errorf("%v\n", cfg)
+	}
+
+	if cfg.X51Log.Folder != "/tmp" {
 		t.Errorf("%v\n", cfg)
 	}
 }

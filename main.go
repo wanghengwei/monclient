@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sevlyar/go-daemon"
@@ -17,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wanghengwei/monclient/conf"
 	"github.com/wanghengwei/monclient/proc"
+	"github.com/wanghengwei/monclient/x51log"
 )
 
 var (
@@ -53,11 +55,30 @@ var (
 	}, []string{"cmd", "pid", "addr", "port"})
 
 	// 收的event
-	eventRecv = promauto.NewCounterVec(prometheus.CounterOpts{
+	eventRecvCount = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "x51",
-		Name:      "event_recv",
-		Help:      "Received Events",
-	}, []string{"service", "pid", "id"})
+		Name:      "event_recv_count",
+		Help:      "Count of Received Events",
+	}, []string{"service", "pid", "event"})
+
+	eventRecvSize = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "x51",
+		Name:      "event_recv_size",
+		Help:      "Size of Received Events",
+	}, []string{"service", "pid", "event"})
+
+	// 发的event
+	eventSendCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "x51",
+		Name:      "event_send_count",
+		Help:      "Count of Sent Events",
+	}, []string{"service", "pid", "event"})
+
+	eventSendSize = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "x51",
+		Name:      "event_send_size",
+		Help:      "Size of Sent Events",
+	}, []string{"service", "pid", "event"})
 
 	// args
 	runAsDaemon = flag.Bool("d", false, "as daemon")
@@ -66,6 +87,7 @@ var (
 // App 总入口
 type App struct {
 	config     *conf.Config
+	configMux  sync.Mutex
 	cfgLoaders []conf.ConfigLoader
 }
 
@@ -82,6 +104,9 @@ func NewApp() *App {
 }
 
 func (app *App) loadConfig() {
+	app.configMux.Lock()
+	defer app.configMux.Unlock()
+
 	for _, cl := range app.cfgLoaders {
 		err := cl.Load()
 		if err == nil {
@@ -93,27 +118,42 @@ func (app *App) loadConfig() {
 	}
 }
 
+func (app *App) getConfig() conf.Config {
+	app.configMux.Lock()
+	defer app.configMux.Unlock()
+
+	return *app.config
+}
+
 // Run 执行主任务。不会返回
 func (app *App) Run() error {
 
-	pm := proc.NewProcessMonitor()
+	app.loadConfig()
+
+	// 后台更新config
+	go func() {
+		time.Sleep(25 * time.Second)
+		app.loadConfig()
+	}()
 
 	// 获得cpu、mem等数据，这些数据来源于周期性的执行系统命令，比如ps
 	go func() {
+		pm := proc.NewProcessMonitor()
+
 		for {
 			// 每次循环开头都应用下配置，因为配置可能会运行时刷新
-			app.loadConfig()
+			cfg := app.getConfig()
 
-			glog.V(1).Infof("config=%v\n", app.config)
+			glog.V(1).Infof("config=%v\n", cfg)
 
 			// 设置本地端口黑名单
 			pm.ClearBlacklist()
-			setPortBlacklist(app.config.Port.Excludes, pm.AddSinglePortToLocalBlacklist, pm.AddPortRangeToLocalBlacklist)
-			setPortBlacklist(app.config.Port.Excludes, pm.AddSinglePortToRemoteBlacklist, pm.AddPortRangeToRemoteBlacklist)
+			setPortBlacklist(cfg.Port.Excludes, pm.AddSinglePortToLocalBlacklist, pm.AddPortRangeToLocalBlacklist)
+			setPortBlacklist(cfg.Port.Excludes, pm.AddSinglePortToRemoteBlacklist, pm.AddPortRangeToRemoteBlacklist)
 
 			// 设置进程黑白名单
-			pm.AddIncludes(app.config.Command.Includes...)
-			pm.AddExcludes(app.config.Command.Excludes...)
+			pm.AddIncludes(cfg.Command.Includes...)
+			pm.AddExcludes(cfg.Command.Excludes...)
 
 			log.Printf("snapping...\n")
 			err := pm.Snap()
@@ -139,7 +179,18 @@ func (app *App) Run() error {
 
 	// 通过log来分析event数量
 	go func() {
+		cfg := app.getConfig()
+		f := func(c *prometheus.CounterVec) func(string, int, string, int) {
+			return func(srv string, pid int, ev string, n int) {
+				c.WithLabelValues(srv, strconv.Itoa(pid), ev).Add(float64(n))
+			}
+		}
 
+		lc := x51log.NewX51EventLogCollector(cfg.X51Log.Folder, f(eventSendCount), f(eventSendSize), f(eventRecvCount), f(eventRecvSize))
+		err := lc.Run()
+		if err != nil {
+			glog.Errorf("tail x51 logs failed: %s\n", err)
+		}
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())

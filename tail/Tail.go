@@ -4,21 +4,23 @@ import (
 	"log"
 	"regexp"
 
+	// "github.com/fsnotify/fsnotify"
 	"github.com/fsnotify/fsnotify"
 	"github.com/hpcloud/tail"
+	"github.com/wanghengwei/monclient/filenotify"
 )
 
 // Util 用来执行tail的工具类
 type Util struct {
 	NewData      chan *Info
-	watcher      *fsnotify.Watcher
+	watcher      filenotify.FileWatcher
 	namePattern  *regexp.Regexp
 	watchedFiles map[string]*tail.Tail
 }
 
 // New 对paths进行后台tail
 func New(folder string, namePattern string) (*Util, error) {
-	w, err := fsnotify.NewWatcher()
+	w, err := filenotify.New()
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +68,7 @@ func (u *Util) watchFolder() {
 	log.Println("start watching...")
 	for {
 		select {
-		case ev := <-u.watcher.Events:
+		case ev := <-u.watcher.Events():
 			if !u.matchName(ev.Name) {
 				break
 			}
@@ -115,7 +117,7 @@ func (u *Util) watchFolder() {
 
 				delete(u.watchedFiles, ev.Name)
 			}
-		case err := <-u.watcher.Errors:
+		case err := <-u.watcher.Errors():
 			log.Printf("watch failed: %s\n", err)
 		}
 	}

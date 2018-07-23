@@ -14,6 +14,10 @@ type Config struct {
 	Port struct {
 		Excludes []string `json:"excludes"`
 	} `json:"port"`
+
+	X51Log struct {
+		Folder string `json:"folder"`
+	} `json:"x51log"`
 }
 
 type ConfigLoader interface {

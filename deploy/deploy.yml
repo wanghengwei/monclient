@@ -7,4 +7,4 @@
       src: ../monclient
       dest: /usr/local/bin/monclient
   - name: start process
-    command: /usr/local/bin/monclient -d
+    command: /usr/local/bin/monclient -d -logtostderr
