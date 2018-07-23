@@ -85,7 +85,10 @@ func (app *App) loadConfig() {
 	for _, cl := range app.cfgLoaders {
 		err := cl.Load()
 		if err == nil {
+			glog.Infof("load config done. config=%v\n", app.config)
 			break
+		} else {
+			glog.Infof("load config error, try next ConfigLoader. error=%s\n", err)
 		}
 	}
 }

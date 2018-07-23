@@ -7,13 +7,13 @@ import (
 
 type Config struct {
 	Command struct {
-		Includes []string
-		Excludes []string
-	}
+		Includes []string `json:"includes"`
+		Excludes []string `json:"excludes"`
+	} `json:"command"`
 
 	Port struct {
-		Excludes []string
-	}
+		Excludes []string `json:"excludes"`
+	} `json:"port"`
 }
 
 type ConfigLoader interface {
