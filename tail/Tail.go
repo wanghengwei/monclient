@@ -1,8 +1,9 @@
 package tail
 
 import (
-	"log"
 	"regexp"
+
+	"github.com/golang/glog"
 
 	// "github.com/fsnotify/fsnotify"
 	"github.com/fsnotify/fsnotify"
@@ -61,25 +62,26 @@ func (u *Util) transLines(t *tail.Tail, fp string) {
 	for l := range t.Lines {
 		u.NewData <- &Info{FilePath: fp, Line: l.Text}
 	}
-	log.Printf("end goroutine for tail file: %s\n", fp)
+	glog.Infof("end goroutine for tail file: %s\n", fp)
 }
 
 func (u *Util) watchFolder() {
-	log.Println("start watching...")
+	glog.Infof("start watching folder\n")
 	for {
 		select {
 		case ev := <-u.watcher.Events():
 			if !u.matchName(ev.Name) {
+				glog.Infof("file name %s is not interested, skip\n", ev.Name)
 				break
 			}
 
 			if ev.Op&fsnotify.Create == fsnotify.Create {
 				// 创建了一个新文件，应当增加对其的tail
-				log.Printf("add watched file %s\n", ev.Name)
+				glog.Infof("add watched file %s\n", ev.Name)
 
 				t, err := tail.TailFile(ev.Name, tail.Config{Follow: true})
 				if err != nil {
-					log.Printf("failed to tail file %s\n", ev.Name)
+					glog.Infof("failed to tail file %s\n", ev.Name)
 					break
 				}
 
@@ -89,16 +91,16 @@ func (u *Util) watchFolder() {
 			} else if ev.Op&fsnotify.Write == fsnotify.Write {
 				_, ok := u.watchedFiles[ev.Name]
 				if ok {
-					log.Printf("ingore watched file %s\n", ev.Name)
+					glog.Infof("ingore watched file %s\n", ev.Name)
 					break
 				}
 
 				// 已有的文件，新写入了，也加入tail
-				log.Printf("add watched file %s\n", ev.Name)
+				glog.Infof("add watched file %s\n", ev.Name)
 
 				t, err := tail.TailFile(ev.Name, tail.Config{Follow: true, Poll: true})
 				if err != nil {
-					log.Printf("failed to tail file %s\n", ev.Name)
+					glog.Infof("failed to tail file %s\n", ev.Name)
 					break
 				}
 
@@ -106,7 +108,7 @@ func (u *Util) watchFolder() {
 
 				u.watchedFiles[ev.Name] = t
 			} else if ev.Op&fsnotify.Remove == fsnotify.Remove {
-				log.Printf("delete watched file %s\n", ev.Name)
+				glog.Infof("delete watched file %s\n", ev.Name)
 
 				t, ok := u.watchedFiles[ev.Name]
 				if !ok {
@@ -116,9 +118,11 @@ func (u *Util) watchFolder() {
 				t.Cleanup()
 
 				delete(u.watchedFiles, ev.Name)
+			} else {
+				glog.V(1).Infof("ingore event %v\n", ev)
 			}
 		case err := <-u.watcher.Errors():
-			log.Printf("watch failed: %s\n", err)
+			glog.Warningf("watch failed: %s\n", err)
 		}
 	}
 }

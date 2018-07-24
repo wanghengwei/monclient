@@ -18,7 +18,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wanghengwei/monclient/conf"
 	"github.com/wanghengwei/monclient/proc"
-	"github.com/wanghengwei/monclient/x51log"
 )
 
 var (
@@ -178,20 +177,20 @@ func (app *App) Run() error {
 	}()
 
 	// 通过log来分析event数量
-	go func() {
-		cfg := app.getConfig()
-		f := func(c *prometheus.CounterVec) func(string, int, string, int) {
-			return func(srv string, pid int, ev string, n int) {
-				c.WithLabelValues(srv, strconv.Itoa(pid), ev).Add(float64(n))
-			}
-		}
+	// go func() {
+	// 	cfg := app.getConfig()
+	// 	f := func(c *prometheus.CounterVec) func(string, int, string, int) {
+	// 		return func(srv string, pid int, ev string, n int) {
+	// 			c.WithLabelValues(srv, strconv.Itoa(pid), ev).Add(float64(n))
+	// 		}
+	// 	}
 
-		lc := x51log.NewX51EventLogCollector(cfg.X51Log.Folder, f(eventSendCount), f(eventSendSize), f(eventRecvCount), f(eventRecvSize))
-		err := lc.Run()
-		if err != nil {
-			glog.Errorf("tail x51 logs failed: %s\n", err)
-		}
-	}()
+	// 	lc := x51log.NewX51EventLogCollector(cfg.X51Log.Folder, f(eventSendCount), f(eventSendSize), f(eventRecvCount), f(eventRecvSize))
+	// 	err := lc.Run()
+	// 	if err != nil {
+	// 		glog.Errorf("tail x51 logs failed: %s\n", err)
+	// 	}
+	// }()
 
 	http.Handle("/metrics", promhttp.Handler())
 	return http.ListenAndServe(":10001", nil)
